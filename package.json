@@ -6,5 +6,11 @@
   ],
   "scripts": {
     "yalc:publish": "npm run yalc:publish --workspaces --if-present"
+  },
+  "devDependencies": {
+    "yalc": "^1.0.0-pre.53"
+  },
+  "dependencies": {
+    "svelte": "^5.56.3"
   }
 }

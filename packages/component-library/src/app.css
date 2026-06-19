@@ -1,0 +1,399 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Scan workspace packages and component library files */
+@source "../**/*.svelte";
+@source "../**/*.svelte.ts";
+@source "../../ui/src/**/*.svelte";
+@source "../../ui/src/**/*.svelte.ts";
+@source "../../../modular-app/repos/module-calendar/src/**/*.svelte";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-family: "Inter Variable", "Inter", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --font-serif:
+    "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
+  --breakpoint-mobile: 800px;
+  --radius-xs: 0.35rem;
+  --radius-sm: 0.55rem;
+  --radius-md: 0.95rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --shadow-soft: 0 20px 45px -28px rgb(15 23 42 / 0.35);
+  --shadow-panel: 0 18px 32px -24px rgb(15 23 42 / 0.28);
+  --nav-band: 65px;
+  --text-3xl: 30px;
+  --text-2xl: 24px;
+  --text-xl: 21px;
+  --text-lg: 18px;
+  --text-md: 16.5px;
+  --text-sm: 14px;
+  --text-xsm: 11px;
+  --margin-sm: 2px;
+  --margin-md: 4px;
+  --margin-lg: 8px;
+  --padding-y-sm: 3px;
+  --padding-x-sm: 6px;
+  --padding-y-md: 6px;
+  --padding-x-md: 10px;
+  --padding-y-lg: 10px;
+  --padding-x-lg: 15px;
+  --app-bg: oklch(0.985 0.006 85);
+  --app-fg: oklch(0.23 0.012 262);
+  --app-panel: oklch(0.995 0.004 84);
+  --app-panel-fg: oklch(0.23 0.012 262);
+  --app-muted: oklch(0.95 0.01 84);
+  --app-muted-fg: oklch(0.5 0.018 260);
+  --app-border: oklch(0.89 0.01 84);
+  --app-input: oklch(0.965 0.01 84);
+  --app-primary: oklch(0.53 0.17 255);
+  --app-primary-fg: oklch(0.98 0.005 255);
+  --app-secondary: oklch(0.9 0.016 238);
+  --app-secondary-fg: oklch(0.29 0.025 255);
+  --app-accent: oklch(0.78 0.12 195);
+  --app-accent-fg: oklch(0.19 0.02 230);
+  --app-success: oklch(0.68 0.15 155);
+  --app-warning: oklch(0.8 0.16 78);
+  --app-destructive: oklch(0.62 0.22 24);
+  --app-destructive-fg: oklch(0.97 0.01 30);
+
+  /*
+   * Z-Index token scale. Every z-index that crosses component boundaries
+   * MUST reference one of these tokens; purely local stacking inside a
+   * single component's own stacking context may still use small raw
+   * integers in the 0-3 range. Gaps are intentional so new layers can be
+   * inserted without renumbering. See `scripts/lint_z_index.mjs` for the
+   * guard that enforces this policy.
+   */
+  --z-under: -1;
+  --z-base: 0;
+  --z-raised: 10;           /* above-background content (event bands, bars) */
+  --z-floating: 20;         /* floating targets, handles, floating panels */
+  --z-sticky: 30;           /* sticky page headers/toolbars */
+  --z-docked: 40;           /* bottom tray, docked sidebars */
+  --z-selected: 50;         /* in-view selection bump */
+  --z-overlay-backdrop: 1000; /* OverlayHost / modal scrims */
+  --z-modal: 1100;          /* modal dialog panels */
+  --z-popover: 1200;        /* popovers, DateAnchorEditor */
+  --z-toast: 1300;          /* ephemeral toasts */
+  --z-tooltip: 1400;        /* hover tooltips — always on top */
+}
+
+:root[data-scale="small"] {
+  --nav-band: 55px;
+  --text-3xl: 26px;
+  --text-2xl: 22px;
+  --text-xl: 19px;
+  --text-lg: 16px;
+  --text-md: 14px;
+  --text-sm: 12px;
+  --text-xsm: 10px;
+  --margin-sm: 1px;
+  --margin-md: 2.5px;
+  --margin-lg: 5px;
+  --padding-y-sm: 2px;
+  --padding-x-sm: 5px;
+  --padding-y-md: 4px;
+  --padding-x-md: 8px;
+  --padding-y-lg: 7px;
+  --padding-x-lg: 12px;
+}
+
+:root[data-scale="medium"] {
+  --nav-band: 65px;
+  --text-3xl: 30px;
+  --text-2xl: 24px;
+  --text-xl: 21px;
+  --text-lg: 18px;
+  --text-md: 16.5px;
+  --text-sm: 14px;
+  --text-xsm: 11px;
+}
+
+:root[data-scale="large"] {
+  --nav-band: 75px;
+  --text-3xl: 35px;
+  --text-2xl: 28px;
+  --text-xl: 25.5px;
+  --text-lg: 22px;
+  --text-md: 20px;
+  --text-sm: 17px;
+  --text-xsm: 14px;
+  --margin-sm: 3px;
+  --margin-md: 5px;
+  --margin-lg: 10px;
+  --padding-y-sm: 4px;
+  --padding-x-sm: 8px;
+  --padding-y-md: 7px;
+  --padding-x-md: 14px;
+  --padding-y-lg: 11px;
+  --padding-x-lg: 17px;
+}
+
+:root[data-theme="dark"], :root.dark {
+  color-scheme: dark;
+  --app-bg: oklch(0.15 0.005 250);
+  --app-fg: oklch(0.98 0.005 250);
+  --app-panel: oklch(0.2 0.005 250);
+  --app-panel-fg: oklch(0.98 0.005 250);
+  --app-muted: oklch(0.25 0.005 250);
+  --app-muted-fg: oklch(0.7 0.005 250);
+  --app-border: oklch(0.28 0.005 250);
+  --app-input: oklch(0.25 0.005 250);
+  --app-primary: oklch(0.98 0.005 250);
+  --app-primary-fg: oklch(0.15 0.005 250);
+  --app-secondary: oklch(0.28 0.005 250);
+  --app-secondary-fg: oklch(0.98 0.005 250);
+  --app-accent: oklch(0.25 0.005 250);
+  --app-accent-fg: oklch(0.98 0.005 250);
+  --app-success: oklch(0.72 0.13 165);
+  --app-warning: oklch(0.82 0.16 80);
+  --app-destructive: oklch(0.69 0.18 25);
+  --app-destructive-fg: oklch(0.98 0.005 250);
+}
+
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --app-bg: oklch(0.18 0.02 255);
+  --app-fg: oklch(0.94 0.012 255);
+  --app-panel: oklch(0.24 0.025 255);
+  --app-panel-fg: oklch(0.96 0.01 255);
+  --app-muted: oklch(0.28 0.018 255);
+  --app-muted-fg: oklch(0.76 0.02 250);
+  --app-border: oklch(0.33 0.02 255);
+  --app-input: oklch(0.3 0.017 255);
+  --app-primary: oklch(0.69 0.15 238);
+  --app-primary-fg: oklch(0.18 0.02 255);
+  --app-secondary: oklch(0.32 0.03 265);
+  --app-secondary-fg: oklch(0.95 0.012 255);
+  --app-accent: oklch(0.7 0.11 185);
+  --app-accent-fg: oklch(0.19 0.02 255);
+  --app-success: oklch(0.72 0.13 165);
+  --app-warning: oklch(0.82 0.16 80);
+  --app-destructive: oklch(0.69 0.18 25);
+  --app-destructive-fg: oklch(0.18 0.02 255);
+}
+
+:root[data-theme="forest"] {
+  --app-bg: oklch(0.97 0.013 145);
+  --app-fg: oklch(0.24 0.018 150);
+  --app-panel: oklch(0.995 0.006 145);
+  --app-panel-fg: oklch(0.22 0.018 150);
+  --app-muted: oklch(0.93 0.012 145);
+  --app-muted-fg: oklch(0.46 0.03 145);
+  --app-border: oklch(0.87 0.017 145);
+  --app-input: oklch(0.97 0.008 145);
+  --app-primary: oklch(0.56 0.14 154);
+  --app-primary-fg: oklch(0.98 0.005 145);
+  --app-secondary: oklch(0.86 0.05 155);
+  --app-secondary-fg: oklch(0.26 0.025 152);
+  --app-accent: oklch(0.8 0.1 105);
+  --app-accent-fg: oklch(0.22 0.018 150);
+}
+
+:root[data-theme="neon"] {
+  color-scheme: dark;
+  --app-bg: oklch(0.1 0.08 280);
+  --app-fg: oklch(0.96 0.025 280);
+  --app-panel: oklch(0.16 0.1 285);
+  --app-panel-fg: oklch(0.97 0.02 280);
+  --app-muted: oklch(0.28 0.08 275);
+  --app-muted-fg: oklch(0.7 0.1 260);
+  --app-border: oklch(0.4 0.15 280);
+  --app-input: oklch(0.2 0.09 285);
+  --app-primary: oklch(0.8 0.28 195);
+  --app-primary-fg: oklch(0.08 0.06 200);
+  --app-secondary: oklch(0.45 0.18 280);
+  --app-secondary-fg: oklch(0.96 0.025 280);
+  --app-accent: oklch(0.75 0.32 320);
+  --app-accent-fg: oklch(0.1 0.06 300);
+  --app-success: oklch(0.78 0.25 145);
+  --app-warning: oklch(0.82 0.22 85);
+  --app-destructive: oklch(0.68 0.28 25);
+  --app-destructive-fg: oklch(0.96 0.025 280);
+}
+
+@theme inline {
+  --color-background: var(--app-bg);
+  --color-foreground: var(--app-fg);
+  --color-panel: var(--app-panel);
+  --color-card: var(--app-panel);
+  --color-panel-foreground: var(--app-panel-fg);
+  --color-muted: var(--app-muted);
+  --color-muted-foreground: var(--app-muted-fg);
+  --color-border: var(--app-border);
+  --color-input: var(--app-input);
+  --color-primary: var(--app-primary);
+  --color-primary-foreground: var(--app-primary-fg);
+  --color-secondary: var(--app-secondary);
+  --color-secondary-foreground: var(--app-secondary-fg);
+  --color-accent: var(--app-accent);
+  --color-accent-foreground: var(--app-accent-fg);
+  --color-success: var(--app-success);
+  --color-warning: var(--app-warning);
+  --color-destructive: var(--app-destructive);
+  --color-destructive-foreground: var(--app-destructive-fg);
+  --font-sans: var(--font-family);
+}
+
+html {
+  --app-background-pattern-size: 220px 220px;
+  --app-background-wash:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--app-accent), transparent 72%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--app-primary), transparent 78%), transparent 24rem);
+  --app-background-pattern-art:
+    url("data:image/svg+xml,%3Csvg width='220' height='220' viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%230f172a' stroke-opacity='.18' stroke-width='1.35'%3E%3Cpath d='M-18 28c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 72c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 116c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 160c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 204c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Ccircle cx='58' cy='58' r='28' stroke-opacity='.12'/%3E%3Ccircle cx='172' cy='154' r='42' stroke-opacity='.10'/%3E%3C/g%3E%3C/svg%3E");
+  --effective-app-background-pattern-opacity: var(--app-background-pattern-opacity, 0.35);
+  font-family: var(--font-family, "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif);
+  /* Lock the document so it never scrolls — keeps Chrome mobile's URL bar pinned.
+     Scrolling lives in the per-route scroll container (see +layout.svelte). */
+  height: 100svh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background-color: var(--app-bg);
+  background-image: var(--app-background-wash);
+  background-size: auto, auto;
+  background-attachment: fixed;
+  color: var(--app-fg);
+}
+
+:root[data-route-surface="auth"] {
+  --effective-app-background-pattern-opacity: 1;
+}
+
+:root[data-auth-pattern="grid"] {
+  --app-background-pattern-size: 72px 72px;
+  --app-background-wash:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--app-accent), transparent 72%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--app-primary), transparent 78%), transparent 24rem);
+  --app-background-pattern-art:
+    url("data:image/svg+xml,%3Csvg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%230f172a' stroke-opacity='.16' stroke-width='1'%3E%3Cpath d='M0 .5h72M0 18.5h72M0 36.5h72M0 54.5h72M.5 0v72M18.5 0v72M36.5 0v72M54.5 0v72'/%3E%3Cpath d='M0 72 72 0M-18 18 18-18M54 90 90 54' stroke-opacity='.09'/%3E%3Crect x='18.5' y='18.5' width='18' height='18' stroke-opacity='.11'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+:root[data-auth-pattern="dots"] {
+  --app-background-pattern-size: 52px 52px;
+  --app-background-wash:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--app-accent), transparent 72%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--app-primary), transparent 78%), transparent 24rem);
+  --app-background-pattern-art:
+    url("data:image/svg+xml,%3Csvg width='52' height='52' viewBox='0 0 52 52' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%230f172a' fill-opacity='.22'%3E%3Ccircle cx='8' cy='8' r='2.2'/%3E%3Ccircle cx='34' cy='34' r='2.2'/%3E%3C/g%3E%3Cg stroke='%230f172a' stroke-opacity='.11' stroke-width='1.2'%3E%3Cpath d='M26 6v8M22 10h8M50 24v7M46.5 27.5h7'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+:root.dark {
+  --app-background-wash:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--app-accent), transparent 80%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--app-primary), transparent 84%), transparent 24rem);
+  --app-background-pattern-art:
+    url("data:image/svg+xml,%3Csvg width='220' height='220' viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='1.35'%3E%3Cpath d='M-18 28c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 72c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 116c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 160c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Cpath d='M-18 204c35-25 76-25 111 0s76 25 111 0 76-25 111 0'/%3E%3Ccircle cx='58' cy='58' r='28' stroke-opacity='.12'/%3E%3Ccircle cx='172' cy='154' r='42' stroke-opacity='.10'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+:root.dark[data-auth-pattern="grid"] {
+  --app-background-wash:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--app-accent), transparent 80%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--app-primary), transparent 84%), transparent 24rem);
+  --app-background-pattern-art:
+    url("data:image/svg+xml,%3Csvg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.17' stroke-width='1'%3E%3Cpath d='M0 .5h72M0 18.5h72M0 36.5h72M0 54.5h72M.5 0v72M18.5 0v72M36.5 0v72M54.5 0v72'/%3E%3Cpath d='M0 72 72 0M-18 18 18-18M54 90 90 54' stroke-opacity='.10'/%3E%3Crect x='18.5' y='18.5' width='18' height='18' stroke-opacity='.12'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+:root.dark[data-auth-pattern="dots"] {
+  --app-background-wash:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--app-accent), transparent 80%), transparent 28rem),
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--app-primary), transparent 84%), transparent 28rem);
+  --app-background-pattern-art:
+    url("data:image/svg+xml,%3Csvg width='52' height='52' viewBox='0 0 52 52' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='.22'%3E%3Ccircle cx='8' cy='8' r='2.2'/%3E%3Ccircle cx='34' cy='34' r='2.2'/%3E%3C/g%3E%3Cg stroke='%23ffffff' stroke-opacity='.12' stroke-width='1.2'%3E%3Cpath d='M26 6v8M22 10h8M50 24v7M46.5 27.5h7'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+body {
+  position: relative;
+  isolation: isolate;
+  height: 100svh;
+  overflow: hidden;
+  margin: 0;
+  background: transparent;
+  color: var(--app-fg);
+  font-family: var(--font-family, "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-under);
+  background-image: var(--app-background-pattern-art);
+  background-size: var(--app-background-pattern-size);
+  opacity: var(--effective-app-background-pattern-opacity);
+  pointer-events: none;
+}
+
+* {
+  border-color: var(--app-border);
+}
+
+a {
+  color: inherit;
+}
+
+.surface-panel {
+  background: color-mix(in srgb, var(--app-panel), transparent 3%);
+  color: var(--app-panel-fg);
+  border: 1px solid color-mix(in srgb, var(--app-border), transparent 8%);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Neon theme glow effects */
+:root[data-theme="neon"] .surface-panel {
+  border-color: color-mix(in srgb, var(--app-border), transparent 60%);
+  box-shadow:
+    0 0 40px -20px color-mix(in srgb, var(--app-primary), transparent 70%),
+    0 0 80px -40px color-mix(in srgb, var(--app-accent), transparent 80%),
+    var(--shadow-panel);
+}
+
+:root[data-theme="neon"] button[data-variant="primary"],
+:root[data-theme="neon"] [data-variant="primary"] {
+  box-shadow: 0 0 20px -5px color-mix(in srgb, var(--app-primary), transparent 60%);
+}
+
+:root[data-theme="neon"] button[data-variant="primary"]:hover,
+:root[data-theme="neon"] [data-variant="primary"]:hover {
+  box-shadow: 0 0 30px -5px color-mix(in srgb, var(--app-primary), transparent 40%);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom global scrollbar styling for consistent premium theme-respecting scrollers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-foreground, var(--app-fg)) 12%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-foreground, var(--app-fg)) 24%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Firefox standard scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-foreground, var(--app-fg)) 12%, transparent) transparent;
+}

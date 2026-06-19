@@ -1,0 +1,37 @@
+{
+  "name": "@modular-app/component-library-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync || echo ''",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^0.554.0",
+    "@modular-app/item-tree": "^0.1.0",
+    "@modular-app/module-calendar": "file:../../../modular-app/repos/module-calendar",
+    "@modular-app/module-sdk": "^0.1.0",
+    "@modular-app/shell-core": "^0.1.0",
+    "@modular-app/ui": "^0.1.0",
+    "clsx": "^2.1.1",
+    "dompurify": "^3.4.3",
+    "svelte": "^5.56.3",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-cloudflare": "^5.0.0",
+    "@sveltejs/kit": "^2.22.0",
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^25.5.0",
+    "svelte-check": "^4.0.0",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.0.0",
+    "vite": "^8.0.3",
+    "wrangler": "^4.11.1"
+  }
+}
