@@ -9,6 +9,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "yalc:publish": "yalc publish"
+  },
   "dependencies": {
     "idb": "^8.0.0"
   },

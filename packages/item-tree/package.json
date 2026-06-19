@@ -16,6 +16,9 @@
       "default": "./src/order.ts"
     }
   },
+  "scripts": {
+    "yalc:publish": "yalc publish"
+  },
   "dependencies": {
     "@modular-app/module-sdk": "^0.1.0",
     "@types/dompurify": "^3.0.5",

@@ -9,6 +9,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "yalc:publish": "yalc publish"
+  },
   "dependencies": {
     "@modular-app/module-sdk": "^0.1.0"
   }
