@@ -5,6 +5,9 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "npm run dev --workspace @modular-app/component-library-app",
+    "build": "npm run build --workspace @modular-app/component-library-app",
+    "preview": "npm run preview --workspace @modular-app/component-library-app",
     "yalc:publish": "npm run yalc:publish --workspaces --if-present"
   },
   "devDependencies": {
