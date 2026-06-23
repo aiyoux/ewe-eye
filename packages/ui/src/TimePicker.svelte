@@ -203,7 +203,7 @@
   }
 </script>
 
-<div class={cn('grid gap-4 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-background)] p-4', className)}>
+<div class={cn('grid gap-4 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-background)] p-4', className)} style="width: 100%; max-width: 320px; box-sizing: border-box;">
   {#if mode === 'auto'}
     <div class="flex flex-wrap gap-2">
       <Button
@@ -270,7 +270,7 @@
       </div>
       
       <div class="relative w-48 h-48 rounded-full bg-[var(--color-input)]/40 flex items-center justify-center">
-        <div class="w-2 h-2 rounded-full bg-[var(--color-primary)] absolute z-[var(--z-raised)]"></div>
+        <div class="w-2 h-2 rounded-full bg-[var(--color-primary)] absolute z-[var(--z-raised)]" style="left: calc(50% - 4px); top: calc(50% - 4px);"></div>
 
         {#if exactDialMode === 'hour'}
           {@const isInner24 = format === '24h' && (timeState.h24 === 0 || timeState.h24 > 12)}
@@ -278,8 +278,8 @@
           {@const hourAngle = format === '12h' ? getAngle(timeState.dHour % 12, 12) : getAngle(timeState.h24 % 12, 12)}
           {@const lineLength = isInner24 ? '25%' : '38%'}
           
-          <div class="absolute w-0.5 bg-[var(--color-primary)] origin-bottom transition-transform duration-300 z-[var(--z-raised)]" style="height: {lineLength}; bottom: 50%; transform: rotate({(format === '12h' ? timeState.dHour % 12 : timeState.h24 % 12) * 30}deg);"></div>
-          <div class="absolute w-8 h-8 rounded-full bg-[var(--color-primary)]/20 border-2 border-[var(--color-primary)] transition-transform duration-300 pointer-events-none z-[var(--z-raised)]" style="transform: rotate({hourAngle}deg) translate({hourRadius}px);"></div>
+          <div class="absolute w-0.5 bg-[var(--color-primary)] origin-bottom transition-transform duration-300 z-[var(--z-raised)]" style="height: {lineLength}; bottom: 50%; left: calc(50% - 1px); transform: rotate({(format === '12h' ? timeState.dHour % 12 : timeState.h24 % 12) * 30}deg);"></div>
+          <div class="absolute w-8 h-8 rounded-full bg-[var(--color-primary)]/20 border-2 border-[var(--color-primary)] transition-transform duration-300 pointer-events-none z-[var(--z-raised)]" style="left: calc(50% - 16px); top: calc(50% - 16px); transform: rotate({hourAngle}deg) translate({hourRadius}px);"></div>
 
           {#each (format === '12h' ? hours12 : hours24) as h, i}
             {@const isInner = format === '24h' && i < 12}
@@ -290,7 +290,7 @@
               type="button"
               aria-label="Select hour {h}"
               class={cn("absolute w-8 h-8 rounded-full flex items-center justify-center text-[var(--text-xsm)] font-medium transition-colors cursor-pointer z-[var(--z-floating)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]", isActive ? "bg-[var(--color-primary)] text-primary-foreground shadow-md" : "hover:bg-[var(--color-muted)] text-[var(--color-foreground)]")}
-              style="transform: rotate({angle}deg) translate({radius}px) rotate({-angle}deg);"
+              style="left: calc(50% - 16px); top: calc(50% - 16px); transform: rotate({angle}deg) translate({radius}px) rotate({-angle}deg);"
               onclick={() => setDialHour(h)}
             >
               {h}
@@ -299,8 +299,8 @@
         {:else}
           {@const currentMinuteAngle = getAngle(timeState.min, 60)}
 
-          <div class="absolute w-0.5 bg-[var(--color-primary)] origin-bottom transition-transform duration-300 z-[var(--z-raised)]" style="height: 38%; bottom: 50%; transform: rotate({timeState.min * 6}deg);"></div>
-          <div class="absolute w-8 h-8 rounded-full bg-[var(--color-primary)]/20 border-2 border-[var(--color-primary)] transition-transform duration-300 pointer-events-none z-[var(--z-raised)]" style="transform: rotate({currentMinuteAngle}deg) translate(85px);"></div>
+          <div class="absolute w-0.5 bg-[var(--color-primary)] origin-bottom transition-transform duration-300 z-[var(--z-raised)]" style="height: 38%; bottom: 50%; left: calc(50% - 1px); transform: rotate({timeState.min * 6}deg);"></div>
+          <div class="absolute w-8 h-8 rounded-full bg-[var(--color-primary)]/20 border-2 border-[var(--color-primary)] transition-transform duration-300 pointer-events-none z-[var(--z-raised)]" style="left: calc(50% - 16px); top: calc(50% - 16px); transform: rotate({currentMinuteAngle}deg) translate(85px);"></div>
 
           {#each minuteOptions as m, i}
             {@const angle = getAngle(i, 12)}
@@ -308,7 +308,7 @@
               type="button"
               aria-label="Select minute {m}"
               class={cn("absolute w-8 h-8 rounded-full flex items-center justify-center text-[var(--text-xsm)] font-medium transition-colors cursor-pointer z-[var(--z-floating)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]", timeState.min === m ? "bg-[var(--color-primary)] text-primary-foreground shadow-md" : "hover:bg-[var(--color-muted)] text-[var(--color-foreground)]")}
-              style="transform: rotate({angle}deg) translate(85px) rotate({-angle}deg);"
+              style="left: calc(50% - 16px); top: calc(50% - 16px); transform: rotate({angle}deg) translate(85px) rotate({-angle}deg);"
               onclick={() => setDialMinute(m)}
             >
               {m}

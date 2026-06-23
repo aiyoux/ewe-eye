@@ -62,13 +62,18 @@
     onSelect = null,
     onAddChild = null,
     onCreateInlineChild = null,
+    onCreateInlineSibling = null,
     inlineChildPlaceholder = 'New item...',
     onOpenSettings = null,
+    onToggleHeader = null,
     onRemove = null,
     onRequestDelete = null,
     onDelete = null,
     onRename = null,
     onMove = null,
+    onFocus = null,
+    expansion = null,
+    defaultChildAdditional = null,
     defaultExpanded = undefined,
     customRow = undefined,
     unstyledWrapper = false
@@ -103,9 +108,31 @@
     linkHref?: ((id: string) => string | null) | null;
     onSelect?: ((id: string) => void) | null;
     onAddChild?: ((parentId: string) => void) | null;
-    onCreateInlineChild?: ((payload: { parentId: string; text: string }) => void) | null;
+    onCreateInlineChild?: ((payload: { parentId: string; text: string; asHeader: boolean; additional?: unknown }) => void) | null;
+    /**
+     * Optional interceptor for inline sibling creation (insert an item directly
+     * after this one, under the same parent). When omitted the add-sibling
+     * action is hidden. `afterId`/`afterOrder` describe the row the new sibling
+     * should follow so the caller can compute a mid-order.
+     */
+    onCreateInlineSibling?:
+      | ((payload: {
+          parentId: string;
+          afterId: string;
+          afterOrder: number;
+          text: string;
+          asHeader: boolean;
+          additional?: unknown;
+        }) => void)
+      | null;
     inlineChildPlaceholder?: string;
     onOpenSettings?: ((id: string) => void) | null;
+    /**
+     * Optional interceptor for toggling an item between a normal record and a
+     * header/title row (`show_as_header`). When omitted the tree patches the
+     * cache and queues `UpdateRecord` directly.
+     */
+    onToggleHeader?: ((payload: { id: string; asHeader: boolean }) => void) | null;
     onRemove?: ((payload: { id: string; parentId: string | null; edgeId: string | null }) => void) | null;
     onRequestDelete?: ((payload: { id: string; text: string }) => void) | null;
     onDelete?: ((id: string) => void) | null;
@@ -122,6 +149,24 @@
      * applies the shared record-tree move behavior.
      */
     onMove?: ((payload: RecordTreeMovePayload) => void) | null;
+    /**
+     * Optional handler for "focus"/zoom-into-subtree. When provided, a focus
+     * button appears on each row so the caller can re-root the tree on that id.
+     */
+    onFocus?: ((id: string) => void) | null;
+    /**
+     * Shared expand/collapse controller (see {@link createTreeExpansion}). When
+     * provided, all nodes read/write a single persisted source of truth and the
+     * caller can drive expand-all / collapse-all. When omitted, each node keeps
+     * its own ephemeral open/closed state.
+     */
+    expansion?: import('./tree-expansion.svelte.ts').TreeExpansion | null;
+    /**
+     * When set, inline-created children carry this additional (e.g. a progress
+     * checkbox) so new rows match the surrounding list's shape. Passed through
+     * to {@link onCreateInlineChild} / {@link onCreateInlineSibling}.
+     */
+    defaultChildAdditional?: unknown | null;
     /** Defaults to true at level 0, false otherwise */
     defaultExpanded?: boolean;
     /**
@@ -173,12 +218,27 @@
       .filter((p): p is Item => !!p)
   );
 
-  let isExpanded = $state(false);
+  // Expansion: when a shared controller is supplied it owns the state (and
+  // persists it); otherwise each node keeps its own ephemeral flag.
+  let localExpanded = $state(false);
   let didInitExpand = $state(false);
+  let isExpanded = $derived(expansion ? expansion.isExpanded(id, level) : localExpanded);
+  function setExpanded(value: boolean) {
+    if (expansion) expansion.set(id, value, level);
+    else localExpanded = value;
+  }
+  function toggleExpanded() {
+    if (expansion) expansion.toggle(id, level);
+    else localExpanded = !localExpanded;
+  }
   let isEditing = $state(false);
   let editValue = $state('');
   let isAddingInlineChild = $state(false);
   let inlineChildValue = $state('');
+  let inlineChildAsHeader = $state(false);
+  let isAddingInlineSibling = $state(false);
+  let inlineSiblingValue = $state('');
+  let inlineSiblingAsHeader = $state(false);
   let treeLoadSeq = 0;
 
   function subtreeContainsSelected(currentId: string, targetId: string, visited = new Set<string>()): boolean {
@@ -247,14 +307,14 @@
   }
 
   $effect(() => {
-    if (didInitExpand) return;
-    isExpanded = defaultExpanded !== undefined ? defaultExpanded : level === 0;
+    if (expansion || didInitExpand) return;
+    localExpanded = defaultExpanded !== undefined ? defaultExpanded : level === 0;
     didInitExpand = true;
   });
 
   $effect(() => {
     if (hasSelectedDescendant) {
-      isExpanded = true;
+      setExpanded(true);
     }
   });
 
@@ -289,7 +349,7 @@
 
   function toggleExpand(e: MouseEvent) {
     e.stopPropagation();
-    isExpanded = !isExpanded;
+    toggleExpanded();
   }
 
   function startEditing() {
@@ -306,7 +366,7 @@
       return;
     }
     if (rowClickBehavior === 'toggle-or-select' && hasChildren) {
-      isExpanded = !isExpanded;
+      toggleExpanded();
     }
     onSelect?.(id);
   }
@@ -331,38 +391,95 @@
     }
   }
 
+  /**
+   * Indent: re-parent this row under its immediately-preceding sibling (as that
+   * sibling's last child). No-op when there's no previous sibling.
+   */
+  function indentItem() {
+    if (!runtime || !edgeId || !parentId) return;
+    const siblings = Array.from(runtime.cache.get_children_for_parent(parentId));
+    const idx = siblings.findIndex((s) => s.edge_id === edgeId);
+    if (idx <= 0) return;
+    const newParentId = siblings[idx - 1].child_id;
+    const newChildren = Array.from(runtime.cache.get_children_for_parent(newParentId));
+    const lastOrder = newChildren.length > 0 ? newChildren[newChildren.length - 1].order : null;
+    commitMove(id, edgeId, newParentId, calculateMidOrder(lastOrder, null));
+  }
+
+  /**
+   * Outdent: lift this row out to become a sibling of its parent, positioned
+   * directly after the parent under the grandparent. No-op at the top level.
+   */
+  function outdentItem() {
+    if (!runtime || !edgeId || !parentId) return;
+    const parentEdges = runtime.cache.get_parents_for_child(parentId) ?? [];
+    const grandEdge = parentEdges.find((e) => e.is_key_parent) ?? parentEdges[0];
+    if (!grandEdge) return;
+    const grandId = grandEdge.parent_id;
+    const grandChildren = Array.from(runtime.cache.get_children_for_parent(grandId));
+    const parentIdx = grandChildren.findIndex((s) => s.child_id === parentId);
+    if (parentIdx < 0) return;
+    const parentOrder = grandChildren[parentIdx].order;
+    const nextOrder = parentIdx < grandChildren.length - 1 ? grandChildren[parentIdx + 1].order : null;
+    commitMove(id, edgeId, grandId, calculateMidOrder(parentOrder, nextOrder));
+  }
+
   function handleEditKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') saveEdit();
-    else if (e.key === 'Escape') isEditing = false;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Outliner behaviour: commit the current text, then drop into a fresh
+      // sibling composer so the user can keep typing a list. Falls back to just
+      // saving when sibling creation isn't wired up.
+      saveEdit();
+      if (onCreateInlineSibling && parentId) {
+        inlineSiblingValue = '';
+        inlineSiblingAsHeader = false;
+        isAddingInlineSibling = true;
+      }
+    } else if (e.key === 'Escape') {
+      isEditing = false;
+    } else if (e.key === 'Tab') {
+      // Tab / Shift+Tab indent and outdent like a classic outliner. Requires
+      // the move plumbing (draggable) and a real parent edge.
+      if (!draggable || !edgeId || !parentId) return;
+      e.preventDefault();
+      saveEdit();
+      if (e.shiftKey) outdentItem();
+      else indentItem();
+    }
   }
 
   function handleAddChild(e: MouseEvent) {
     e.stopPropagation();
     if (onCreateInlineChild) {
-      isExpanded = true;
+      setExpanded(true);
       inlineChildValue = '';
+      inlineChildAsHeader = false;
       isAddingInlineChild = true;
       return;
     }
     if (onAddChild) {
       onAddChild(id);
-      isExpanded = true;
+      setExpanded(true);
     }
   }
 
   function commitInlineChild() {
     if (!isAddingInlineChild) return;
     const text = inlineChildValue.trim();
+    const asHeader = inlineChildAsHeader;
     isAddingInlineChild = false;
     inlineChildValue = '';
+    inlineChildAsHeader = false;
     if (text) {
-      onCreateInlineChild?.({ parentId: id, text });
+      onCreateInlineChild?.({ parentId: id, text, asHeader, additional: defaultChildAdditional ?? undefined });
     }
   }
 
   function cancelInlineChild() {
     isAddingInlineChild = false;
     inlineChildValue = '';
+    inlineChildAsHeader = false;
   }
 
   function handleInlineChildKeydown(e: KeyboardEvent) {
@@ -372,6 +489,61 @@
     } else if (e.key === 'Escape') {
       e.preventDefault();
       cancelInlineChild();
+    }
+  }
+
+  function handleAddSibling(e: MouseEvent) {
+    e.stopPropagation();
+    if (!onCreateInlineSibling || !parentId) return;
+    inlineSiblingValue = '';
+    inlineSiblingAsHeader = false;
+    isAddingInlineSibling = true;
+  }
+
+  function commitInlineSibling() {
+    if (!isAddingInlineSibling) return;
+    const text = inlineSiblingValue.trim();
+    const asHeader = inlineSiblingAsHeader;
+    isAddingInlineSibling = false;
+    inlineSiblingValue = '';
+    inlineSiblingAsHeader = false;
+    if (text && onCreateInlineSibling && parentId) {
+      onCreateInlineSibling({
+        parentId,
+        afterId: id,
+        afterOrder: order,
+        text,
+        asHeader,
+        additional: defaultChildAdditional ?? undefined
+      });
+    }
+  }
+
+  function cancelInlineSibling() {
+    isAddingInlineSibling = false;
+    inlineSiblingValue = '';
+    inlineSiblingAsHeader = false;
+  }
+
+  function handleInlineSiblingKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitInlineSibling();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelInlineSibling();
+    }
+  }
+
+  function handleToggleHeader(e: MouseEvent) {
+    e.stopPropagation();
+    if (!item || !runtime) return;
+    const next = !item.show_as_header;
+    if (onToggleHeader) {
+      onToggleHeader({ id, asHeader: next });
+    } else {
+      runtime.cache.patch_item_header(id, next);
+      runtime.queueAndWake('UpdateRecord', { id, show_as_header: next });
     }
   }
 
@@ -473,7 +645,7 @@
       const children = Array.from(cache.get_children_for_parent(id));
       const lastChildOrder = children.length > 0 ? children[children.length - 1].order : null;
       newOrder = calculateMidOrder(lastChildOrder, null);
-      isExpanded = true;
+      setExpanded(true);
     } else {
       newParentId = parentId as string;
       if (!newParentId) { dragOverZone = null; return; }
@@ -691,7 +863,7 @@
         if (e.key !== 'Enter') return;
         e.preventDefault();
         if (rowClickBehavior === 'toggle-or-select' && hasChildren) {
-          isExpanded = !isExpanded;
+          toggleExpanded();
         }
         onSelect?.(id);
       }}
@@ -948,6 +1120,27 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
               </button>
             {/if}
+            {#if onCreateInlineSibling && edgeId && parentId}
+              <button
+                class="rounded p-1 text-[var(--color-muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--color-primary),transparent_88%)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+                onclick={handleAddSibling}
+                title="Add item below"
+                aria-label="Add item below"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12H5"/><path d="m5 9-3 3 3 3"/></svg>
+              </button>
+            {/if}
+            {#if onToggleHeader || (editable && runtime)}
+              <button
+                class="rounded p-1 transition hover:bg-[color-mix(in_srgb,var(--color-primary),transparent_88%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] {item.show_as_header ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}"
+                onclick={handleToggleHeader}
+                title={item.show_as_header ? 'Make normal record' : 'Make title / header'}
+                aria-label={item.show_as_header ? 'Make normal record' : 'Make title / header'}
+                aria-pressed={Boolean(item.show_as_header)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/></svg>
+              </button>
+            {/if}
             {#if draggable && edgeId && parentId}
               <button
                 class="rounded p-1 text-[var(--color-muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--color-primary),transparent_88%)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
@@ -964,6 +1157,16 @@
                 aria-label="Move down"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            {/if}
+            {#if onFocus}
+              <button
+                class="rounded p-1 text-[var(--color-muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--color-primary),transparent_88%)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+                onclick={(e) => { e.stopPropagation(); onFocus?.(id); }}
+                title="Focus on this item"
+                aria-label="Focus on this item"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
               </button>
             {/if}
             {#if onOpenSettings}
@@ -1023,6 +1226,9 @@
             {showGraphParents}
             {showGroupingParents}
             {showActions}
+            {expansion}
+            {onFocus}
+            {defaultChildAdditional}
             {hydrateRoot}
             {badgePlacement}
             {labelLines}
@@ -1037,8 +1243,10 @@
             {onSelect}
             {onAddChild}
             {onCreateInlineChild}
+            {onCreateInlineSibling}
             {inlineChildPlaceholder}
             {onOpenSettings}
+            {onToggleHeader}
             {onRemove}
             {onRequestDelete}
             {onDelete}
@@ -1052,10 +1260,17 @@
             style:padding-left={`calc(${(level + 1)} * var(--tree-indent) + 0.5rem)`}
           >
             <span class="size-5 shrink-0"></span>
-            <span
-              class="flex size-4 shrink-0 items-center justify-center rounded border-2 custom-checkbox"
-              aria-hidden="true"
-            ></span>
+            <button
+              type="button"
+              class="flex size-5 shrink-0 items-center justify-center rounded border transition-colors {inlineChildAsHeader ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}"
+              title={inlineChildAsHeader ? 'Creating as title / header' : 'Create as normal record'}
+              aria-label="Toggle title / header"
+              aria-pressed={inlineChildAsHeader}
+              onmousedown={(e) => e.preventDefault()}
+              onclick={(e) => { e.stopPropagation(); inlineChildAsHeader = !inlineChildAsHeader; }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/></svg>
+            </button>
             <!-- svelte-ignore a11y_autofocus -->
             <input
               bind:value={inlineChildValue}
@@ -1063,11 +1278,41 @@
               onblur={commitInlineChild}
               onkeydown={handleInlineChildKeydown}
               onclick={(e) => e.stopPropagation()}
-              class="min-w-0 flex-1 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-2 py-1 text-[var(--text-sm)] outline-none placeholder:text-[var(--color-muted-foreground)]"
+              class="min-w-0 flex-1 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-2 py-1 outline-none placeholder:text-[var(--color-muted-foreground)] {inlineChildAsHeader ? 'font-bold' : ''} text-[var(--text-sm)]"
               autofocus
             />
           </div>
         {/if}
+      </div>
+    {/if}
+
+    {#if isAddingInlineSibling}
+      <div
+        class="flex items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1"
+        style:padding-left={`calc(${level} * var(--tree-indent) + 0.5rem)`}
+      >
+        <span class="size-5 shrink-0"></span>
+        <button
+          type="button"
+          class="flex size-5 shrink-0 items-center justify-center rounded border transition-colors {inlineSiblingAsHeader ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}"
+          title={inlineSiblingAsHeader ? 'Creating as title / header' : 'Create as normal record'}
+          aria-label="Toggle title / header"
+          aria-pressed={inlineSiblingAsHeader}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={(e) => { e.stopPropagation(); inlineSiblingAsHeader = !inlineSiblingAsHeader; }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/></svg>
+        </button>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          bind:value={inlineSiblingValue}
+          placeholder={inlineChildPlaceholder}
+          onblur={commitInlineSibling}
+          onkeydown={handleInlineSiblingKeydown}
+          onclick={(e) => e.stopPropagation()}
+          class="min-w-0 flex-1 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-2 py-1 outline-none placeholder:text-[var(--color-muted-foreground)] {inlineSiblingAsHeader ? 'font-bold' : ''} text-[var(--text-sm)]"
+          autofocus
+        />
       </div>
     {/if}
   </div>

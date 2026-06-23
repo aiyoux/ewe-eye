@@ -1051,6 +1051,18 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
           ${globalScopePreamble}
           ${excludedTreePreamble}
           SELECT *,
+            -- Enrich permissions with public display info (username + icon),
+            -- mirroring fn::group_for_fetch. Without this the calendar's
+            -- permission pills only have the raw { u, r } shape and fall back to
+            -- showing the user record id with no avatar.
+            (IF $this.permissions != none {
+              $this.permissions.map(|$p| {
+                u: $p.u,
+                r: $p.r,
+                username: (SELECT VALUE name FROM user_public WHERE user_id = $p.u LIMIT 1)[0],
+                user_icon_small: (SELECT VALUE user_icon_small FROM user_public WHERE user_id = $p.u LIMIT 1)[0]
+              })
+            } ELSE { none }) AS permissions,
             (SELECT * FROM <-groups<-records) AS grouping,
             (SELECT *, (SELECT * FROM <-groups<-records) AS grouping FROM array::concat(
               (SELECT * FROM <-appliesto<-records).filter(|$v| $v != none),

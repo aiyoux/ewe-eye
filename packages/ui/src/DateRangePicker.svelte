@@ -1,7 +1,7 @@
 <script lang="ts">
   import Popover from './Popover.svelte';
   import DateRangeCalendar from './DateRangeCalendar.svelte';
-  import Button from './Button.svelte';
+  import { Pencil, X } from '@lucide/svelte';
   import type { DateRangeValue } from './date-range.ts';
   import { formatRangeLabel } from './date-range.ts';
   import {
@@ -23,6 +23,7 @@
     triggerLabel = 'Date range',
     placeholder = 'Pick a date range',
     showValue = true,
+    open = $bindable(false),
     allowVague = false,
     vagueYear = $bindable<string | null>(null),
     vagueMonth = $bindable<string | null>(null),
@@ -43,6 +44,7 @@
     triggerLabel?: string;
     placeholder?: string;
     showValue?: boolean;
+    open?: boolean;
     allowVague?: boolean;
     vagueYear?: string | null;
     vagueMonth?: string | null;
@@ -55,7 +57,6 @@
     weekStart?: number;
   } = $props();
 
-  let open = $state(false);
   let viewing_date = $state({
     year: value.start?.getFullYear() ?? new Date().getFullYear(),
     month: (value.start?.getMonth() ?? new Date().getMonth()) + 1,
@@ -134,36 +135,44 @@
     {#if showValue}
       <div
         use:ref
-        class="inline-flex min-w-[17rem] items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2"
+        class="inline-flex min-w-[17rem] items-center gap-2"
       >
-        <div class="min-w-0 flex-1 text-center">
-          <p class="text-[var(--text-xsm)] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted-foreground)]">{triggerLabel}</p>
+        <div class="min-w-0 flex-1 text-left">
           <p class="truncate text-[var(--text-sm)] font-semibold text-[var(--color-foreground)]">{triggerText}</p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
+        <button
+          type="button"
+          class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
           onclick={() => {
             open = !open;
           }}
           aria-expanded={open}
+          aria-label={open ? 'Close date picker' : 'Edit date'}
         >
-          {open ? 'Close' : 'Open'}
-        </Button>
+          {#if open}
+            <X class="size-4" />
+          {:else}
+            <Pencil class="size-4" />
+          {/if}
+        </button>
       </div>
     {:else}
-      <span use:ref class="inline-flex">
-        <Button
-          variant="secondary"
-          size="sm"
-          onclick={() => {
-            open = !open;
-          }}
-          aria-expanded={open}
-        >
-          {open ? 'Close' : 'Open'}
-        </Button>
-      </span>
+      <button
+        use:ref
+        type="button"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+        onclick={() => {
+          open = !open;
+        }}
+        aria-expanded={open}
+        aria-label={open ? 'Close date picker' : 'Edit date'}
+      >
+        {#if open}
+          <X class="size-4" />
+        {:else}
+          <Pencil class="size-4" />
+        {/if}
+      </button>
     {/if}
   {/snippet}
 
