@@ -244,6 +244,19 @@ export function date_to_bucket_key(year: number, month: number, day: number): st
   return `${year.toString().padStart(4, '0')}-${pad(month)}-${pad(day)}`;
 }
 
+/**
+ * Bucket key (`YYYY-MM-DD`) for the **local** calendar day of a `Date`.
+ *
+ * Calendar bucketing keys on the user's LOCAL Y/M/D, not UTC — so for a user in
+ * UTC+10, an instant of `2026-07-04T14:00:00Z` buckets to `2026-07-05`. Both the
+ * date-range hydrator and the optimistic-placement reconciler MUST funnel
+ * through this single helper so their buckets always agree; divergence here
+ * silently drops/duplicates events across the day boundary.
+ */
+export function date_to_local_bucket(date: Date): string {
+  return date_to_bucket_key(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
 export function scope_key_from_list(scope_ids: string[] | null | undefined): string {
   if (!scope_ids || scope_ids.length === 0) {
     return '';

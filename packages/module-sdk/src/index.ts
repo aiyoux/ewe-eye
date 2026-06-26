@@ -78,6 +78,7 @@ export * from './types.ts';
 export { createAppCache, type AppCache } from './cache/store.svelte.ts';
 export * from './cache/hydration.ts';
 export { type CacheItem, type CacheMutationEvent, type ChildEdge, type CloneSetting, type Op, type OpKind, type OpStatus, type SyncStatus, type EntityMeta, type CreateTreeBatchPayload, type CreateTreeBatchRecord, type CreateTreeBatchEdge, type CreateTreeBatchAppliesEdge, type CreateTreeBatchChildRef, type CreateTreeBatchGroupEdge, type CreateTreeBatchParentRef } from './cache/types.ts';
+export { date_to_bucket_key, date_to_local_bucket, scope_bucket_key } from './cache/types.ts';
 export {
   getSyncOpsStore,
   listSyncOps,
@@ -85,6 +86,15 @@ export {
   removeSyncOp,
   clearSyncOpsNamespace
 } from './sync/ops-store.svelte.ts';
+export {
+  startFetch,
+  endFetch,
+  getFetchStore,
+  listActiveFetches,
+  listAllActiveFetches,
+  totalActiveFetchCount,
+  type FetchRecord
+} from './sync/fetch-store.svelte.ts';
 export * from './cache/persist.ts';
 export {
   createLiveBus,

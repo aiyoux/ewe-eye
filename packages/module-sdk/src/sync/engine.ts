@@ -1168,6 +1168,17 @@ export function createSyncEngine(
           const tempId = payload.records[index]?.tempId;
           const realId = normalizeThingString(final.temp_ids[index]);
           if (!tempId || !realId || tempId === realId) continue;
+          // Mirror the single-record CreateRecord path (which calls
+          // cache.remap_id locally before broadcasting): emit the remap to
+          // LOCAL cache subscribers too. The livebus filters self-broadcasts
+          // (live.ts: envelope.sender === senderId -> return), so without
+          // this the originating tab never learns the temp->real mapping and
+          // any optimistic UI keyed on the temp id can't bridge onto the real
+          // id. By this point the swap (removeItem(tempId) + batch_upsert of
+          // the real cores + real edges) has already happened, so remap_id is
+          // a data no-op (temp id gone from items/slices/edges) — it only
+          // emits TempIdRemap + bumps reactivity epochs.
+          cache.remap_id(tempId, realId);
           await rewriteOplogId(tempId, realId);
           liveBus.broadcast({ type: 'TempIdRemap', tempId, realId });
         }
@@ -1595,6 +1606,18 @@ export function createSyncEngine(
               liveBus.broadcast({ type: 'TempIdRemap', tempId: oldId, realId: newId });
               madeProgress = true;
             }
+          }
+
+          // 1b. DeleteTree confirmed — remove the record locally now that the
+          // server has deleted it. Callers no longer remove optimistically at
+          // queue time (so a pending delete can show its indicator and can't be
+          // resurrected by a refetch racing server indexing), so this accept is
+          // the authoritative local removal. The originating tab's own
+          // live-stream echo is filtered, so relying on it would leave the row
+          // until a refresh; other tabs/devices still get the changefeed delete.
+          if (op.kind === 'DeleteTree') {
+            const delId = extractTargetId(op.payload);
+            if (delId) cache.removeItem(delId);
           }
 
           // 2. Feedback Accepted

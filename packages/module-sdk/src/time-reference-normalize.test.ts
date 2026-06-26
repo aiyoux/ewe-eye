@@ -262,6 +262,36 @@ describe('time-reference-normalize', () => {
       expect(result.issues.some((i) => i.code === 'end_before_start')).toBe(true);
     });
 
+    it('accepts a single-day event with only an exact start time (no end)', () => {
+      // Regression: adding a time previously tripped end_before_start because the
+      // implicit end minute defaulted to 00:00 of the same day, which is before
+      // the start time — disabling the calendar create button.
+      const tr: TimeReference = {
+        y: { s: { type: 'ba', v: 2026 } },
+        m: { s: { type: 'ba', v: 5 } },
+        d: { s: { type: 'ba', v: 13 } },
+        i: { s: { type: 'ba', v: 840 } }
+      };
+      const result = validateTimeReferenceStructure(tr);
+      expect(result.valid).toBe(true);
+      expect(result.issues).toHaveLength(0);
+    });
+
+    it('accepts a start-time-only event under save options (requireStartDate, no offsets)', () => {
+      // Mirrors the calendar create/save call site exactly.
+      const tr: TimeReference = {
+        y: { s: { type: 'ba', v: 2026 } },
+        m: { s: { type: 'ba', v: 5 } },
+        d: { s: { type: 'ba', v: 13 } },
+        i: { s: { type: 'ba', v: 840 } }
+      };
+      const result = validateTimeReferenceStructure(tr, {
+        requireStartDate: true,
+        allowOffsets: false
+      });
+      expect(result.valid).toBe(true);
+    });
+
     it('rejects unsupported offset references', () => {
       const tr: TimeReference = {
         y: { s: { type: 'ba', v: 2026 } },

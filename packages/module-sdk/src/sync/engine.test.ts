@@ -99,6 +99,36 @@ describe('createSyncEngine', () => {
     );
   });
 
+  it('removes the deleted record locally when a DeleteTree op is accepted', async () => {
+    // Callers no longer remove optimistically at queue time (so a pending delete
+    // can show its indicator and isn't resurrected by a refetch racing server
+    // indexing), so the accept is the authoritative local removal.
+    const cache = createCacheStub();
+    const liveBus = createBusStub();
+    const fetchMock = vi.mocked(fetch);
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([{ status: 'OK', result: null }])
+    } as unknown as Response);
+
+    const engine = createSyncEngine(cache as any, liveBus as any, {
+      url: 'http://localhost:8000',
+      namespace: 'app',
+      storageNamespace: 'test-sync',
+      database: 'main',
+      token: 'token',
+      scopes: []
+    });
+
+    engine.queueOp('DeleteTree', { id: 'records:gone' });
+    await engine.pushOps();
+
+    expect(cache.removeItem).toHaveBeenCalledWith('records:gone');
+    expect(deleteOpMock).toHaveBeenCalled(); // op accepted → dropped from durable queue
+    expect(engine.getPendingOps()).toHaveLength(0);
+  });
+
   it('classifies SurrealDB transaction conflicts as retryable', () => {
     expect(
       isRetryableSyncError(

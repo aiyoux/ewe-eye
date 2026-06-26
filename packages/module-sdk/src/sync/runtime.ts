@@ -11,6 +11,7 @@ import type { LogLevel } from './logger.ts';
 import { createLogger } from './logger.ts';
 import { buildSurrealStatement, extractQueryRows } from './surrealql.ts';
 import { emitSyncTrace } from './trace.ts';
+import { startFetch, endFetch } from './fetch-store.svelte.ts';
 import type { AdditionalWithId } from '../types.ts';
 
 export interface RuntimeSchemaIssue {
@@ -1220,6 +1221,12 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
 
   async function fetchAndCache(call: LeaderRpcCall, timeoutMs?: number): Promise<any[]> {
     const effectiveTimeout = timeoutMs ?? defaultTimeoutForCall(call);
+    // Track this read as in-flight so UI loading indicators (top progress strip,
+    // per-connection spinners) can react to fetch activity and color it distinctly
+    // from sync (write) ops. Keyed by the runtime's isolationKey (one bucket per
+    // profile/connection). Settled in the finally below regardless of outcome.
+    const fetchId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+    startFetch(config.isolationKey, { id: fetchId, type: String(call.type), startedAt: Date.now() });
     try {
       // Rather than routing reads through the bus where they can drop during election,
       // we can just resolve them directly in the current tab via our executeQuery fallback
@@ -1310,6 +1317,8 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
     } catch (e) {
       logger.warn(`Failed fetchAndCache for ${call.type}`, e);
       throw e;
+    } finally {
+      endFetch(config.isolationKey, fetchId);
     }
   }
 

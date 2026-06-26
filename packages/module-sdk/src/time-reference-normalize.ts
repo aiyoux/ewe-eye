@@ -308,7 +308,13 @@ export function validateTimeReferenceStructure(
   const hasEndMinute = endMinute !== undefined;
   const ew = baValue(endWeek) ?? sw;
   const ed = baValue(endDay) ?? (hasEndMinute ? sd : null);
-  const ei = baValue(endMinute);
+  // When no explicit end minute is authored, the end instant inherits the start
+  // minute (a point-in-time event), mirroring how ey/em/ew/ed fall back to the
+  // start side above. Without this, a single-day event with only a start time
+  // compared its start time against an implicit end of 00:00 on the same day and
+  // falsely tripped end_before_start — which disabled the calendar create button
+  // the moment a time was added.
+  const ei = baValue(endMinute) ?? si;
 
   const comparable = extractDateWindow(value);
   if (comparable && (ed !== null || ew !== null || em !== null || ey !== null || endMinute !== undefined)) {
