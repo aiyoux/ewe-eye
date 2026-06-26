@@ -255,6 +255,7 @@
           ariaLabel="Meridiem"
           options={[{ value: 'AM', label: 'AM' }, { value: 'PM', label: 'PM' }]}
           bind:value={meridiem}
+          onValueChange={() => commitExact()}
           class="w-fit"
         />
       {/if}
