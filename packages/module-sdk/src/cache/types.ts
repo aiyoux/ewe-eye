@@ -3,6 +3,11 @@ export interface CacheItem {
   text: string;
   markup?: string;
   show_as_header?: boolean;
+  /** Inline icon for the record: raw SVG markup (`svg`) or a short text glyph
+   * (`short`). Ported from wisewords; carried on CacheItem so the LIVE path and
+   * inlined `grouping` records keep the icon. */
+  svg?: string;
+  short?: string;
   has_parent?: boolean;
   custom_color?: number;
   is_temp: boolean;
