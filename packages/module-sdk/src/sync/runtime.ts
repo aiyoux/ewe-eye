@@ -486,11 +486,27 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
     engine.applyRemote({ type: 'RecordBatchUpsert', cores: normalized });
 
     // Reconcile: remove locally cached records that no longer exist on the server.
-    // Since we fetch all records in the namespace (no scope filtering), any cached
-    // record not in the fetched set is stale.
+    // CAVEAT: the namespace snapshot (`SELECT * FROM records`) is a COARSE
+    // authority. Under record-auth a plain full-table select can return fewer
+    // rows than the richer, view-specific queries that populate the cache (the
+    // calendar's date-range fetch, FetchRecordGraph, …) — the per-row permission
+    // scan is slow and narrower for group/shared-visible rows. Treating "absent
+    // from this snapshot" as "deleted" tore actively-displayed items out of the
+    // cache on every resync (e.g. tab refocus), so ~half the calendar flickered
+    // out and was re-added by the view's own refetch a moment later. Exempt any
+    // id a view is actively indexing (present in a scope-bucket slice) from
+    // snapshot eviction. Genuine server deletes still arrive via live
+    // RecordDelete and leave the slice on the next view refetch, after which a
+    // later snapshot can evict them.
     const fetchedIds = new Set(normalized.map((core) => core.id));
+    const sliceReferencedIds = new Set<string>();
+    for (const slice of cache.scopeBucketSlices.values()) {
+      for (const id of slice.item_ids) sliceReferencedIds.add(id);
+    }
     const allCachedIds = cache.getAllItems().map(item => item.id);
-    const toDelete = allCachedIds.filter((id) => !fetchedIds.has(id));
+    const toDelete = allCachedIds.filter(
+      (id) => !fetchedIds.has(id) && !sliceReferencedIds.has(id)
+    );
     if (toDelete.length > 0) {
       engine.applyRemote({ type: 'RecordBatchDelete', ids: toDelete });
       logger.debug(`snapshot reconciled ${toDelete.length} stale records`);
@@ -692,10 +708,10 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
 
     const rootSql = `
       SELECT *,
-        ${includeGrouping ? '(SELECT * FROM <-groups<-records) AS grouping,' : ''}
+        ${includeGrouping ? '(SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping,' : ''}
         ${includeConnections
           ? `(SELECT *,
-                (SELECT * FROM <-groups<-records) AS grouping
+                (SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping
               FROM array::concat(
                 (SELECT * FROM <-appliesto<-records).filter(|$v| $v != none),
                 (SELECT * FROM ->appliesto->records)
@@ -719,10 +735,10 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
               WHERE in INSIDE <array<record>>$ids
             );
             SELECT *,
-              ${includeGrouping ? '(SELECT * FROM <-groups<-records) AS grouping,' : ''}
+              ${includeGrouping ? '(SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping,' : ''}
               ${includeConnections
                 ? `(SELECT *,
-                      (SELECT * FROM <-groups<-records) AS grouping
+                      (SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping
                     FROM array::concat(
                       (SELECT * FROM <-appliesto<-records).filter(|$v| $v != none),
                       (SELECT * FROM ->appliesto->records)
@@ -772,10 +788,10 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
             await executeQuery(
               `
                 SELECT *,
-                  ${includeGrouping ? '(SELECT * FROM <-groups<-records) AS grouping,' : ''}
+                  ${includeGrouping ? '(SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping,' : ''}
                   ${includeConnections
                     ? `(SELECT *,
-                          (SELECT * FROM <-groups<-records) AS grouping
+                          (SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping
                         FROM array::concat(
                           (SELECT * FROM <-appliesto<-records).filter(|$v| $v != none),
                           (SELECT * FROM ->appliesto->records)
@@ -894,7 +910,7 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
           } ELSE {
             [(
               SELECT *,
-                (SELECT * FROM <-groups<-records) AS grouping,
+                (SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping,
                 (SELECT * FROM <-graph_child_of WHERE key_parent = true LIMIT 1) AS parent_edges
               FROM $pt
             )[0]]
@@ -1064,8 +1080,8 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
                 user_icon_small: (SELECT VALUE user_icon_small FROM user_public WHERE user_id = $p.u LIMIT 1)[0]
               })
             } ELSE { none }) AS permissions,
-            (SELECT * FROM <-groups<-records) AS grouping,
-            (SELECT *, (SELECT * FROM <-groups<-records) AS grouping FROM array::concat(
+            (SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping,
+            (SELECT *, (SELECT VALUE fn::object_with_field(fn::object_with_field(in.*, "is_template_container", is_template_container), "grouping", (SELECT VALUE fn::object_with_field(in.*, "is_template_container", is_template_container) FROM in<-groups)) FROM <-groups) AS grouping FROM array::concat(
               (SELECT * FROM <-appliesto<-records).filter(|$v| $v != none),
               (SELECT * FROM ->appliesto->records)
               )) AS connections
@@ -1459,6 +1475,19 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
       });
       if (msg.type === 'SyncWake' && leaderElection.isLeader) {
         void engine.pushOps();
+      } else if (msg.type === 'RequestLeadership') {
+        // A foreground follower wants leadership. Only a BACKGROUNDED leader
+        // yields (a visible leader keeps it; the requester self-pushes its own
+        // writes meanwhile). This stops a throttled background tab from
+        // starving the active tab's syncs.
+        if (
+          leaderElection.isLeader &&
+          typeof document !== 'undefined' &&
+          document.visibilityState !== 'visible'
+        ) {
+          logger.info('yielding leadership to a foreground tab on request');
+          leaderElection.yieldLeadership();
+        }
       } else if (msg.type === 'RpcRequest' && leaderElection.isLeader && liveConn) {
         try {
           const result = await handleLeaderRpc(msg.call);
@@ -1561,6 +1590,16 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
     return 0;
   }
 
+  // The active (visible) tab must not depend on a possibly-throttled background
+  // leader to flush its writes. Push our own queued ops directly and ask the
+  // current leader to hand leadership over so subsequent ops take the
+  // direct-push path in queueAndWake.
+  function followerActivate() {
+    if (destroyed || leaderElection.isLeader) return;
+    void engine.pushOps();
+    liveBus.broadcast({ type: 'RequestLeadership' });
+  }
+
   function handleVisibilityChange() {
     if (destroyed) return;
     if (document.visibilityState !== 'visible') {
@@ -1570,11 +1609,17 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
       restartLeaderLiveConnection('visibilitychange');
     } else {
       void resyncActiveScopes('follower', false);
+      followerActivate();
     }
   }
 
   function handleWindowFocus() {
-    restartLeaderLiveConnection('window-focus');
+    if (destroyed) return;
+    if (leaderElection.isLeader) {
+      restartLeaderLiveConnection('window-focus');
+    } else {
+      followerActivate();
+    }
   }
 
   function destroy() {
@@ -1626,8 +1671,15 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
       liveBus.broadcast(msg);
     }
     
-    // Wake leader, or push directly if we are the leader
-    if (leaderElection.isLeader) {
+    // Push directly if we're the leader, or if we're the visible/active tab —
+    // a foreground follower must not wait on a possibly-throttled background
+    // leader to flush this write. We deliberately do NOT also SyncWake the
+    // leader in that case, so the same op isn't pushed by two tabs at once
+    // (some ops, e.g. RELATE-based grouping edges, aren't idempotent on a
+    // double-send). A hidden follower defers to the leader as before.
+    const tabIsVisible =
+      typeof document === 'undefined' || document.visibilityState === 'visible';
+    if (leaderElection.isLeader || tabIsVisible) {
       void engine.pushOps();
     } else {
       liveBus.broadcast({ type: 'SyncWake' });

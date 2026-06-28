@@ -99,6 +99,55 @@ describe('createSyncEngine', () => {
     );
   });
 
+  it('per-op backoff: a failing op does not block a freshly-queued op', async () => {
+    // Blast-radius regression guard. The old global failureCount/backoff gate
+    // made pushOps() return early for the WHOLE queue once any op failed, so a
+    // brand-new write got stranded until the backoff elapsed. With per-op
+    // backoff the failing op (now backing off) is skipped while the never-tried
+    // op is attempted immediately.
+    const cache = createCacheStub();
+    const liveBus = createBusStub();
+    const fetchMock = vi.mocked(fetch);
+
+    // 1st HTTP call (op A) → statement-level error → A fails, starts backing off.
+    // Every later call (op B) → success.
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([{ status: 'ERR', detail: 'read or write conflict' }])
+      } as unknown as Response)
+      .mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([{ status: 'OK', result: null }])
+      } as unknown as Response);
+
+    const engine = createSyncEngine(cache as any, liveBus as any, {
+      url: 'http://localhost:8000',
+      namespace: 'app',
+      storageNamespace: 'test-sync',
+      database: 'main',
+      token: 'token',
+      scopes: []
+    });
+
+    engine.queueOp('UpdateRecord', { id: 'records:A', text: 'a' });
+    await engine.pushOps();
+    // A failed and is pending again, now within its retry backoff window.
+    expect(engine.getPendingOps()).toHaveLength(1);
+
+    engine.queueOp('UpdateRecord', { id: 'records:B', text: 'b' });
+    await engine.pushOps();
+
+    // B (retries 0) was eligible and got attempted + accepted; A is still
+    // backing off. The old global gate would have skipped this push entirely,
+    // leaving BOTH ops pending and B never attempted (length 2).
+    const pending = engine.getPendingOps();
+    expect(pending).toHaveLength(1);
+    expect((pending[0].payload as any).id).toBe('records:A');
+    // B reached accept → dropped from the durable queue.
+    expect(deleteOpMock).toHaveBeenCalled();
+  });
+
   it('removes the deleted record locally when a DeleteTree op is accepted', async () => {
     // Callers no longer remove optimistically at queue time (so a pending delete
     // can show its indicator and isn't resurrected by a refetch racing server

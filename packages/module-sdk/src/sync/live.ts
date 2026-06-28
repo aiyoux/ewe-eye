@@ -42,6 +42,13 @@ export type LiveBusMsg =
   | { type: 'OpUpsert'; op: Op }
   | { type: 'OpRemove'; id: string }
   | { type: 'SyncWake' }
+  /**
+   * A foreground follower asking the current (likely backgrounded) leader to
+   * hand over leadership so the active tab isn't starved by background-tab
+   * timer throttling. Handled only by a hidden leader. Immediate (un-batched)
+   * so a throttled leader processes it without waiting on a timer/raf.
+   */
+  | { type: 'RequestLeadership' }
   | { type: 'RpcRequest'; requestId: string; call: LeaderRpcCall }
   | { type: 'RpcResponse'; requestId: string; ok: boolean; payload?: unknown };
 
@@ -185,7 +192,12 @@ export function createLiveBus(scope: string, senderId: string, options?: { logLe
   }
 
   function isImmediateMessage(msg: LiveBusMsg): boolean {
-    return msg.type === 'SyncWake' || msg.type === 'RpcRequest' || msg.type === 'RpcResponse';
+    return (
+      msg.type === 'SyncWake' ||
+      msg.type === 'RequestLeadership' ||
+      msg.type === 'RpcRequest' ||
+      msg.type === 'RpcResponse'
+    );
   }
 
   function deliver(envelope: LiveBusEnvelope) {

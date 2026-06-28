@@ -501,7 +501,6 @@ export function createSyncEngine(
   let oplog: Op[] = [];
   let inflightOps: Map<string, Op> = new Map();
   let syncPromise: Promise<void> | null = null;
-  let lastSyncTime = 0;
   let initialized = false;
   let failureCount = 0;
   let syncLoopWake: (() => void) | null = null;
@@ -556,13 +555,24 @@ export function createSyncEngine(
     }).catch((e) => logger.error('failed to persist op', e));
   }
 
-  function calculateBackoff(): number {
-    if (failureCount === 0) return 0;
-    const backoff = Math.min(
-      BASE_BACKOFF_MS * Math.pow(2, Math.min(failureCount, 6)),
+  // Per-op exponential backoff. The wait before an op's next attempt is derived
+  // from that op's OWN retry count + `last_attempt_at` — NOT a shared counter.
+  // The old global `failureCount` gate stalled the ENTIRE queue (including
+  // brand-new, never-tried writes) for up to MAX_BACKOFF_MS whenever any single
+  // op was backing off; a retryable-conflict op (infinite retries) could starve
+  // healthy writes indefinitely. A never-attempted op (retries 0) is always
+  // eligible, so one struggling op can no longer block unrelated ones.
+  function backoffForRetries(retries: number): number {
+    if (retries <= 0) return 0;
+    return Math.min(
+      BASE_BACKOFF_MS * Math.pow(2, Math.min(retries, 6)),
       MAX_BACKOFF_MS
     );
-    return backoff + Math.random() * 750;
+  }
+
+  function opEligibleNow(op: Op, now: number): boolean {
+    if (op.retries <= 0) return true;
+    return now - (op.last_attempt_at ?? 0) >= backoffForRetries(op.retries);
   }
 
   /** Load pending ops from IndexedDB on startup so they survive page refresh. */
@@ -648,12 +658,6 @@ export function createSyncEngine(
       return;
     }
 
-    const now = Date.now();
-    const backoff = calculateBackoff();
-    if (now - lastSyncTime < backoff && lastSyncTime > 0) {
-      return;
-    }
-
     // Capture ops queued by sleeping/background followers into shared IndexedDB
     const persisted = await loadPendingOps(config.storageNamespace);
     const existingIds = new Set(oplog.map(op => op.id));
@@ -676,7 +680,12 @@ export function createSyncEngine(
       }
     }
 
-    const pending = oplog.filter(op => op.status === 'pending');
+    // Per-op backoff: attempt only ops that are eligible now (never-tried, or
+    // past their own retry backoff). Ops still backing off stay pending and are
+    // retried by a later pushOps()/sync-loop tick — they no longer block the
+    // eligible ones.
+    const now = Date.now();
+    const pending = oplog.filter(op => op.status === 'pending' && opEligibleNow(op, now));
     if (pending.length === 0) return;
     syncWasBusy = true;
     logger.debug(`pushing ${pending.length} pending ops`);
@@ -697,7 +706,6 @@ export function createSyncEngine(
       await syncPromise;
     } finally {
       syncPromise = null;
-      lastSyncTime = Date.now();
       if (
         syncWasBusy &&
         oplog.every(op => op.status !== 'pending') &&
@@ -713,14 +721,15 @@ export function createSyncEngine(
     //    lock (same-tab queueAndWake or cross-tab SyncWake — the latter's op is
     //    only in IDB, which the re-run's loadPendingOps will pull in).
     //  - a late in-memory op not in our snapshot (defensive belt-and-suspenders).
-    // Both key off "new work appeared," NOT "any pending op remains", so a
-    // genuinely stuck op — e.g. one deferred waiting for a temp id that never
-    // resolves — can't spin this into a hot loop (it was in `snapshotIds` and
-    // sets no flag on its own). On failure, the backoff gate at the top of
-    // pushOps still applies, so this won't busy-retry a failing server.
+    // Both key off "new ELIGIBLE work appeared," NOT "any pending op remains".
+    // The eligibility check is essential now that pushOps filters by per-op
+    // backoff: a failed op that's still backing off is pending AND not in
+    // `snapshotIds`, so without it this would hot-loop. Genuinely stuck ops
+    // (deferred on an unresolved temp id, or backing off) set no flag and are
+    // not eligible/new, so they wait for the next sync-loop tick instead.
     if (
       pushRequestedDuringFlight ||
-      oplog.some(op => op.status === 'pending' && !snapshotIds.has(op.id))
+      oplog.some(op => op.status === 'pending' && !snapshotIds.has(op.id) && opEligibleNow(op, Date.now()))
     ) {
       await pushOps();
     }
@@ -2166,6 +2175,7 @@ export function createSyncEngine(
       case 'ChildMove':
       case 'TempRecordCreate':
       case 'SyncWake':
+      case 'RequestLeadership':
       case 'RpcRequest':
       case 'RpcResponse':
         break;

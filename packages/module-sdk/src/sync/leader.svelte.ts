@@ -21,6 +21,7 @@ export function createLeaderElection(isolationKey: string) {
       tabId: 'server',
       leaderSessionId: 0,
       release: () => {},
+      yieldLeadership: () => {},
       destroy: () => {},
       onChange: () => () => {}
     };
@@ -76,6 +77,21 @@ export function createLeaderElection(isolationKey: string) {
     }
   }
 
+  /**
+   * Hand leadership to another waiting context (e.g. a foreground tab) without
+   * permanently giving it up. Release the held Web Lock and immediately rejoin
+   * the request queue at the back: any tab already waiting on the lock is ahead
+   * of us and becomes leader, while we (if we're the only contender) simply
+   * re-acquire it. Used when a backgrounded leader is asked to defer to the
+   * active tab, whose throttled-timer-free context can flush syncs promptly.
+   */
+  function yieldLeadership() {
+    if (destroyed || !isLeader) return;
+    abortController.abort();
+    abortController = new AbortController();
+    acquireLock();
+  }
+
   function onBeforeUnload() {
     releaseLeadership();
   }
@@ -97,6 +113,7 @@ export function createLeaderElection(isolationKey: string) {
     get tabId() { return myTabId; },
     get leaderSessionId() { return leaderSessionId; },
     release: releaseLeadership,
+    yieldLeadership,
     destroy,
     onChange(handler: () => void) {
       handlers.push(handler);

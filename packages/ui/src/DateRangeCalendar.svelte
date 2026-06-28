@@ -76,6 +76,7 @@
     weekMode = $bindable<WeekModeCode>('ord'),
     weekStart = $bindable<number>(1),
     onSelectVague,
+    onDone,
     class: className = '',
     style = ''
   }: {
@@ -106,6 +107,7 @@
     weekMode?: WeekModeCode;
     weekStart?: number;
     onSelectVague?: (detail: { type: 'year' | 'month' | 'day'; value: string }) => void;
+    onDone?: () => void;
     class?: string;
     style?: string;
   } = $props();
@@ -1978,7 +1980,12 @@
           {isVagueActive || (exactDay !== null && exactMonth === null) ? vagueLabel : formatRangeLabel(value)}
         </p>
       </div>
-      <button class="range-clear-btn" type="button" onclick={clearRange} aria-label="Clear">Clear</button>
+      <div class="flex items-center gap-2">
+        <button class="range-clear-btn" type="button" onclick={clearRange} aria-label="Clear">Clear</button>
+        {#if onDone}
+          <button class="range-done-btn" type="button" onclick={onDone} aria-label="Done">Done</button>
+        {/if}
+      </div>
     </div>
   {/if}
 
@@ -2049,6 +2056,32 @@
 
   .range-nav-btn:focus-visible,
   .range-clear-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-primary);
+  }
+
+  .range-done-btn {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: calc(var(--radius-md) - 0.15rem);
+    border: 1px solid var(--color-primary);
+    background: var(--color-primary);
+    padding: 0.45rem 0.78rem;
+    font-size: var(--text-xsm);
+    font-weight: 600;
+    color: white;
+    transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+    cursor: pointer;
+  }
+
+  .range-done-btn:hover {
+    background: color-mix(in srgb, var(--color-primary), black 12%);
+    border-color: color-mix(in srgb, var(--color-primary), black 12%);
+  }
+
+  .range-done-btn:focus-visible {
     outline: none;
     box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-primary);
   }

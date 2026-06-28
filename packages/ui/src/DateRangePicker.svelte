@@ -1,7 +1,7 @@
 <script lang="ts">
   import Popover from './Popover.svelte';
   import DateRangeCalendar from './DateRangeCalendar.svelte';
-  import { Pencil, X } from '@lucide/svelte';
+  import { Pencil, X, Plus } from '@lucide/svelte';
   import type { DateRangeValue } from './date-range.ts';
   import { formatRangeLabel } from './date-range.ts';
   import {
@@ -107,6 +107,7 @@
   });
 
   const isVagueActive = $derived(vagueYear !== null || vagueMonth !== null || vagueDay !== null);
+  const hasValue = $derived(value.start !== null || isVagueActive || exactWeek !== null || exactDay !== null);
 
   $effect(() => {
     if (open) {
@@ -130,7 +131,7 @@
   });
 </script>
 
-<Popover bind:open placement="bottom-start" contentClass={dualMonth ? "w-[min(56rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]" : "w-[min(28rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"}>
+<Popover bind:open placement="bottom-start" contentClass={dualMonth ? "w-[min(56rem,calc(100vw-2rem)] max-w-[calc(100vw-2rem)]" : "w-[min(28rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"}>
   {#snippet trigger({ ref })}
     {#if showValue}
       <div
@@ -142,17 +143,17 @@
         </div>
         <button
           type="button"
-          class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+          class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] {open ? 'bg-[var(--color-muted)] text-[var(--color-foreground)]' : ''}"
           onclick={() => {
             open = !open;
           }}
           aria-expanded={open}
           aria-label={open ? 'Close date picker' : 'Edit date'}
         >
-          {#if open}
-            <X class="size-4" />
-          {:else}
+          {#if hasValue}
             <Pencil class="size-4" />
+          {:else}
+            <Plus class="size-4" />
           {/if}
         </button>
       </div>
@@ -160,17 +161,17 @@
       <button
         use:ref
         type="button"
-        class="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] {open ? 'bg-[var(--color-muted)] text-[var(--color-foreground)]' : ''}"
         onclick={() => {
           open = !open;
         }}
         aria-expanded={open}
         aria-label={open ? 'Close date picker' : 'Edit date'}
       >
-        {#if open}
-          <X class="size-4" />
-        {:else}
+        {#if hasValue}
           <Pencil class="size-4" />
+        {:else}
+          <Plus class="size-4" />
         {/if}
       </button>
     {/if}
@@ -196,6 +197,7 @@
       {simpleCellMode}
       {showMonthOutline}
       {dualMonth}
+      onDone={() => open = false}
       class="shadow-[0_30px_80px_-35px_rgba(0,0,0,0.75)]"
       style="height: min(27.5rem, calc(100vh - 7rem)); max-height: min(27.5rem, calc(100vh - 7rem));"
     />
