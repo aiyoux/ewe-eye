@@ -153,3 +153,71 @@ describe('scope-bucket-slice field integrity (Bug 6)', () => {
   // repos/module-calendar/test/calendar-reconciler.todo.test.ts).
   it.todo('C4: no temp+real double-render during the create echo/accept overlap');
 });
+
+/**
+ * isItemInScope parent-walk fallback (uncaptured gap). When no scope-bucket
+ * slice exists for the queried scope (edges cold / scope not yet hydrated), the
+ * store falls back to walking cached graph_child_of ancestry via
+ * parentsByChild/childrenEdges (store.svelte.ts:378-404). This mirrors the
+ * server date-range scope helper: a scoped ancestor is enough for a dated
+ * descendant to count as in-scope. These tests exercise that fallback directly
+ * (multi-hop reach, cycle-break, and the false/null outcomes).
+ */
+describe('isItemInScope parent-walk fallback', () => {
+  it('returns true when the item reaches the scope through cached graph_child_of ancestry (multi-hop)', () => {
+    const cache = createAppCache();
+    cache.normalizeItem({ id: 'records:child', text: 'C', is_temp: false, dirty: false, sync_status: 'accepted' });
+    cache.normalizeItem({ id: 'records:mid', text: 'M', is_temp: false, dirty: false, sync_status: 'accepted' });
+
+    // child -> mid -> scope. No slice is recorded for the queried scope, so the
+    // only path to "true" is the parent walk.
+    cache.upsert_graph_child_of_edge('graph_child_of:e1', 'records:child', 'records:mid', 0, true);
+    cache.upsert_graph_child_of_edge('graph_child_of:e2', 'records:mid', 'records:scope', 0, true);
+
+    expect(cache.isItemInScope('records:child', 'records:scope')).toBe(true);
+    cache.clear();
+  });
+
+  it('terminates on an ancestry cycle (A->B->A) without looping forever', () => {
+    const cache = createAppCache();
+    cache.normalizeItem({ id: 'records:A', text: 'A', is_temp: false, dirty: false, sync_status: 'accepted' });
+    cache.normalizeItem({ id: 'records:B', text: 'B', is_temp: false, dirty: false, sync_status: 'accepted' });
+
+    // A's parent is B, B's parent is A — a cycle. The visited set must break it.
+    cache.upsert_graph_child_of_edge('graph_child_of:ab', 'records:A', 'records:B', 0, true);
+    cache.upsert_graph_child_of_edge('graph_child_of:ba', 'records:B', 'records:A', 0, true);
+
+    // Neither node is under records:scope; with no slice for that scope the
+    // result is null (not a hang).
+    expect(cache.isItemInScope('records:A', 'records:scope')).toBeNull();
+    cache.clear();
+  });
+
+  it('returns null when the item has no ancestry and no slice exists for the scope', () => {
+    const cache = createAppCache();
+    cache.normalizeItem({ id: 'records:lonely', text: 'L', is_temp: false, dirty: false, sync_status: 'accepted' });
+
+    // No edges, no slice for the queried scope => unknown (null), not false.
+    expect(cache.isItemInScope('records:lonely', 'records:scope')).toBeNull();
+    cache.clear();
+  });
+
+  it('returns false (definitively out) when a slice exists for the scope but the item is neither in it nor under the scope', () => {
+    const cache = createAppCache();
+    cache.normalizeItem({ id: 'records:lonely', text: 'L', is_temp: false, dirty: false, sync_status: 'accepted' });
+    cache.normalizeItem({ id: 'records:other', text: 'O', is_temp: false, dirty: false, sync_status: 'accepted' });
+
+    // A slice for the scope exists (so membership is resolvable), but the item
+    // is not in it and has no ancestry reaching the scope => false.
+    cache.record_scope_bucket_items('records:scope', '2026-07-05', ['records:other']);
+    expect(cache.isItemInScope('records:lonely', 'records:scope')).toBe(false);
+    cache.clear();
+  });
+
+  it('treats the item itself as in-scope by identity (no edges/slices needed)', () => {
+    const cache = createAppCache();
+    cache.normalizeItem({ id: 'records:scope', text: 'S', is_temp: false, dirty: false, sync_status: 'accepted' });
+    expect(cache.isItemInScope('records:scope', 'records:scope')).toBe(true);
+    cache.clear();
+  });
+});

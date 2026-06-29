@@ -21,6 +21,10 @@ function createCacheStub() {
   return {
     remap_id: vi.fn(),
     update_sync_status: vi.fn(),
+    // queueOp de-proxies payloads via cache.clonePlain before persist/broadcast.
+    // The stub passes plain data through unchanged (test payloads are already
+    // plain JS); the real cache does $state.snapshot + structuredClone.
+    clonePlain: vi.fn((v: unknown) => v),
     normalizeItem: vi.fn(),
     removeItem: vi.fn(),
     batch_upsert: vi.fn(),
@@ -1012,6 +1016,142 @@ describe('createSyncEngine', () => {
     expect(cleanupBody).toContain('UPDATE records UNSET _sync_op_id WHERE _sync_op_id IN $op_ids');
     expect(cleanupBody).toContain('UPDATE graph_child_of UNSET _sync_op_id WHERE _sync_op_id IN $op_ids');
     expect(cleanupBody).toContain('UPDATE groups UNSET _sync_op_id WHERE _sync_op_id IN $op_ids');
+  });
+
+  // Bug 3 / engine remap ordering: on CreateTreeBatch accept the temp->real
+  // remap MUST be broadcast AFTER the record + edge batch upserts, so the
+  // reconciler's final pass sees the remapped slice (the real cores + edges are
+  // already placed when TempIdRemap lands). If the remap fires first, a
+  // reconciler keyed on the temp id bridges onto the real id before the real
+  // rows exist and the item vanishes until a refetch. This pins the ordering
+  // the Calendar grace safety-net + reconciler depend on (see
+  // calendar-reconciler.todo.test.ts "engine: TempIdRemap is emitted last").
+  it('emits TempIdRemap LAST (after RecordBatchUpsert + GraphChildBatchUpsert) on CreateTreeBatch accept', async () => {
+    const cache = createCacheStub();
+    const liveBus = createBusStub();
+    const fetchMock = vi.mocked(fetch);
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([
+        {
+          status: 'OK',
+          result: {
+            records: [
+              { id: 'records:root', text: 'Root' },
+              { id: 'records:child', text: 'Child' }
+            ],
+            edges: [
+              { id: 'graph_child_of:child-root', in: 'records:child', out: 'records:root', order: 0, key_parent: true }
+            ],
+            temp_ids: ['records:root', 'records:child']
+          }
+        }
+      ])
+    } as unknown as Response);
+
+    const engine = createSyncEngine(cache as any, liveBus as any, {
+      url: 'http://localhost:8000',
+      namespace: 'app',
+      storageNamespace: 'test-sync',
+      database: 'main',
+      token: 'token',
+      scopes: []
+    });
+
+    engine.queueOp('CreateTreeBatch', {
+      records: [
+        { tempId: 'temp:root', content: { text: 'Root' } },
+        { tempId: 'temp:child', content: { text: 'Child' } }
+      ],
+      edges: [
+        {
+          tempEdgeId: 'graph_child_of:temp-child-root',
+          childTempId: 'temp:child',
+          parentRef: { kind: 'temp', tempId: 'temp:root' },
+          order: 0,
+          key_parent: true
+        }
+      ],
+      optimisticTempIds: [],
+      optimisticTempEdgeIds: []
+    });
+    await engine.pushOps();
+
+    // The real cores + edges were bulk-applied to the cache before the remap.
+    expect(cache.batch_upsert).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'records:root', sync_status: 'accepted' }),
+        expect.objectContaining({ id: 'records:child', sync_status: 'accepted' })
+      ])
+    );
+    expect(cache.upsert_graph_child_of_edge).toHaveBeenCalledWith(
+      'graph_child_of:child-root', 'records:child', 'records:root', 0, true, undefined, null
+    );
+    // remap_id was called for each temp->real pair.
+    expect(cache.remap_id).toHaveBeenCalledWith('temp:root', 'records:root');
+    expect(cache.remap_id).toHaveBeenCalledWith('temp:child', 'records:child');
+
+    // Broadcast ordering: every data upsert precedes every TempIdRemap.
+    const types = liveBus.broadcast.mock.calls.map((c) => (c[0] as { type: string }).type);
+    expect(types).toContain('RecordBatchUpsert');
+    expect(types).toContain('GraphChildBatchUpsert');
+    expect(types.filter((t) => t === 'TempIdRemap').length).toBe(2); // one per remapped temp id
+
+    const lastUpsertIndex = Math.max(
+      types.lastIndexOf('RecordBatchUpsert'),
+      types.lastIndexOf('GraphChildBatchUpsert')
+    );
+    const firstRemapIndex = types.indexOf('TempIdRemap');
+    // The first TempIdRemap lands strictly after the last record/edge batch
+    // upsert — no remap is interleaved ahead of the data it remaps.
+    expect(firstRemapIndex).toBeGreaterThan(lastUpsertIndex);
+  });
+
+  // queueOp MUST de-proxy the payload before it enters the op pipeline. A
+  // Svelte $state proxy nested in the payload crashes BroadcastChannel.postMessage
+  // (and IDB) with DataCloneError and the op sticks pending/inflight forever —
+  // the "new events stuck InFlight" bug. The cache's clonePlain does the
+  // $state.snapshot + structuredClone; this proves queueOp routes the payload
+  // through it and the broadcast op carries the CLONE, not the caller's input.
+  it('de-proxies the payload in queueOp so the broadcast op carries a plain clone', async () => {
+    const cache = createCacheStub();
+    const originalPayload = {
+      records: [{ tempId: 'temp:x', content: { text: 'T' } }],
+      edges: []
+    };
+    // Simulate the cache's clonePlain: return a DISTINCT plain object so we can
+    // prove the op stores the clone, not the (possibly proxy) caller input.
+    const clonedPayload = JSON.parse(JSON.stringify(originalPayload));
+    cache.clonePlain = vi.fn(() => clonedPayload) as any;
+    const liveBus = createBusStub();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([{ status: 'OK', result: { records: [], edges: [] } }])
+    } as unknown as Response);
+
+    const engine = createSyncEngine(cache as any, liveBus as any, {
+      url: 'http://localhost:8000',
+      namespace: 'app',
+      storageNamespace: 'test-sync',
+      database: 'main',
+      token: 'token',
+      scopes: []
+    });
+
+    engine.queueOp('CreateTreeBatch', originalPayload);
+
+    // clonePlain was invoked with the raw caller payload...
+    expect(cache.clonePlain).toHaveBeenCalledWith(originalPayload);
+    // ...and the broadcast OpUpsert carries the CLONE (de-proxied payload), so
+    // postMessage gets plain structured-cloneable data, not the caller's input.
+    const opUpsert = liveBus.broadcast.mock.calls.find(
+      (c) => (c[0] as { type?: string }).type === 'OpUpsert'
+    );
+    expect(opUpsert).toBeTruthy();
+    expect((opUpsert![0] as any).op.payload).toBe(clonedPayload);
+    expect((opUpsert![0] as any).op.payload).not.toBe(originalPayload);
   });
 
   it('skips cleanup query when sync fails', async () => {

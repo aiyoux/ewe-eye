@@ -626,10 +626,22 @@ export function createSyncEngine(
 
   function queueOp(kind: OpKind, payload: unknown): Op {
     const now = Date.now();
+    // De-proxy reactive (Svelte $state) payloads before they enter the op
+    // pipeline. The op is persisted to IndexedDB and broadcast over a
+    // BroadcastChannel, both of which structured-clone — a proxy nested in the
+    // payload throws DataCloneError and the op sticks pending/inflight forever
+    // (no broadcast, no persist). The cache owns the svelte-aware deep clone
+    // ($state.snapshot + structuredClone, which also preserves Date instances
+    // that a JSON round-trip would corrupt). Defensive `?.` so a partial cache
+    // stub without clonePlain (e.g. unit tests) falls back to the raw payload.
+    const plainPayload =
+      typeof (cache as any).clonePlain === 'function'
+        ? (cache as any).clonePlain(payload)
+        : payload;
     const op: Op = {
       id: generate_op_id(),
       kind,
-      payload,
+      payload: plainPayload,
       status: 'pending',
       created: now,
       retries: 0,

@@ -52,6 +52,9 @@ export interface AppRuntime {
   updateScopes: (scopes: string[]) => void;
   getActiveScopes: () => string[];
   fetchAndCache: (call: LeaderRpcCall, timeoutMs?: number) => Promise<any[]>;
+  // True while a namespace-scope resync (coarse snapshot + edge catch-up) is
+  // in flight. Subscribers skip corrective slice mutations on coarse upserts.
+  isResyncing: () => boolean;
 }
 
 const LIVE_CATCHUP_REQUIRED_KEY = 'live.catchup.required';
@@ -351,6 +354,44 @@ async function resolveToken(config: RuntimeConfig): Promise<string> {
   return config.token;
 }
 
+/**
+ * Applies a coarse namespace-scope record snapshot (`SELECT * FROM records`)
+ * to the cache as a catch-up batch of upserts. Pure/exported so the
+ * no-eviction contract is unit-testable without a live DB.
+ *
+ * NOTE: we deliberately do NOT reconcile deletes from this snapshot.
+ * The namespace snapshot is a COARSE, permission-narrowed authority: under
+ * record-auth a plain full-table select returns FEWER rows than the richer
+ * view-specific queries that populate the cache (the calendar's date-range
+ * fetch, FetchRecordGraph, …) — group/shared-visible rows are dropped by the
+ * per-row permission scan. Treating "absent from this coarse snapshot" as
+ * "deleted" therefore evicts records that genuinely exist. An earlier
+ * exemption-by-slice-referenced-id only protected the *visible* month;
+ * cached-but-off-screen records (e.g. a month you swiped away from) were
+ * still evicted with no refetch to recover them, so they silently vanished
+ * until a manual refresh. Genuine server deletes are already delivered
+ * reliably by the live `RecordDelete`/`RecordBatchDelete` changefeed events +
+ * changefeed catchup (changefeed-convert.ts, changefeed-dispatch.ts,
+ * engine.ts RecordDelete handler) — that is the correct deletion authority,
+ * not this coarse snapshot. If offline-tombstone cleanup is ever needed, it
+ * must use a provably-complete or per-id authoritative check, never
+ * `SELECT *` absence.
+ */
+export function applyRecordSnapshot(engine: SyncEngine, cores: any[]): Set<string> {
+  const normalized = Array.isArray(cores)
+    ? cores.map(core => {
+        if (core && core.id && typeof core.id !== 'string' && typeof core.id.toString === 'function') {
+          core.id = core.id.toString();
+        }
+        return core;
+      }).filter(core => core && typeof core.id === 'string')
+    : [];
+
+  engine.applyRemote({ type: 'RecordBatchUpsert', cores: normalized });
+
+  return new Set(normalized.map((core) => core.id));
+}
+
 export function createAppRuntime(config: RuntimeConfig): AppRuntime {
   const logLevel = config.logLevel ?? 'info';
   const logger = createLogger(`runtime:${config.isolationKey}`, logLevel);
@@ -384,6 +425,13 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
   let activeScopes = [...initialScopes];
   let resyncPromise: Promise<void> | null = null;
   let resyncAbort: AbortController | null = null;
+  // Depth (not a boolean) because resyncActiveScopes is abortable/re-entrant:
+  // a new call aborts an in-flight one, whose finally decrements while the new
+  // one increments. Exposed as rt.isResyncing() so cache subscribers (the
+  // calendar reconciler) can avoid corrective slice mutations driven by the
+  // coarse namespace snapshot whose client-side scope resolution is wrong
+  // while the edge cache is cold — see CalendarPage sync_item_to_buckets.
+  let resyncDepth = 0;
   let destroyed = false;
   let liveCatchupRequired = false;
   // First resync after start() is always authoritative — IDB state survives
@@ -471,48 +519,6 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
       onWarn: (msg, e) => logger.warn(msg, e)
     });
     await run();
-  }
-
-  function applyRecordSnapshot(_scopes: string[], cores: any[]) {
-    const normalized = Array.isArray(cores)
-      ? cores.map(core => {
-          if (core && core.id && typeof core.id !== 'string' && typeof core.id.toString === 'function') {
-            core.id = core.id.toString();
-          }
-          return core;
-        }).filter(core => core && typeof core.id === 'string')
-      : [];
-
-    engine.applyRemote({ type: 'RecordBatchUpsert', cores: normalized });
-
-    // Reconcile: remove locally cached records that no longer exist on the server.
-    // CAVEAT: the namespace snapshot (`SELECT * FROM records`) is a COARSE
-    // authority. Under record-auth a plain full-table select can return fewer
-    // rows than the richer, view-specific queries that populate the cache (the
-    // calendar's date-range fetch, FetchRecordGraph, …) — the per-row permission
-    // scan is slow and narrower for group/shared-visible rows. Treating "absent
-    // from this snapshot" as "deleted" tore actively-displayed items out of the
-    // cache on every resync (e.g. tab refocus), so ~half the calendar flickered
-    // out and was re-added by the view's own refetch a moment later. Exempt any
-    // id a view is actively indexing (present in a scope-bucket slice) from
-    // snapshot eviction. Genuine server deletes still arrive via live
-    // RecordDelete and leave the slice on the next view refetch, after which a
-    // later snapshot can evict them.
-    const fetchedIds = new Set(normalized.map((core) => core.id));
-    const sliceReferencedIds = new Set<string>();
-    for (const slice of cache.scopeBucketSlices.values()) {
-      for (const id of slice.item_ids) sliceReferencedIds.add(id);
-    }
-    const allCachedIds = cache.getAllItems().map(item => item.id);
-    const toDelete = allCachedIds.filter(
-      (id) => !fetchedIds.has(id) && !sliceReferencedIds.has(id)
-    );
-    if (toDelete.length > 0) {
-      engine.applyRemote({ type: 'RecordBatchDelete', ids: toDelete });
-      logger.debug(`snapshot reconciled ${toDelete.length} stale records`);
-    }
-
-    return fetchedIds;
   }
 
   function applyGroupingEdgeSnapshot(rows: any[]) {
@@ -973,7 +979,7 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
       const cores = await fetchRecordsForScopes(scopes);
 
       if (abort.signal.aborted) return;
-      const scopedRecordIds = applyRecordSnapshot(scopes, cores);
+      const scopedRecordIds = applyRecordSnapshot(engine, cores);
 
       const edgeRows = await fetchGroupingEdgesForScopes(scopes);
 
@@ -995,10 +1001,12 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
     }
     };
 
+    resyncDepth++;
     resyncPromise = run();
     try {
       await resyncPromise;
     } finally {
+      resyncDepth = Math.max(0, resyncDepth - 1);
       resyncPromise = null;
       if (resyncAbort === abort) {
         resyncAbort = null;
@@ -1711,6 +1719,10 @@ export function createAppRuntime(config: RuntimeConfig): AppRuntime {
     queueAndWake,
     updateScopes,
     getActiveScopes: () => [...activeScopes],
-    fetchAndCache
+    fetchAndCache,
+    // True while a namespace-scope resync (coarse `SELECT * FROM records`
+    // snapshot + edge catch-up) is in flight. Subscribers use this to skip
+    // corrective slice mutations on the coarse upserts (cold edge cache).
+    isResyncing: () => resyncDepth > 0
   };
 }

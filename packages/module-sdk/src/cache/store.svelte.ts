@@ -728,6 +728,12 @@ export function createAppCache() {
     get generation() { return generation; },
 
     subscribe,
+    // Deep-clone a value to a plain (non-reactive) structure via
+    // $state.snapshot + structuredClone. Used by the sync engine to de-proxy
+    // Svelte $state payloads BEFORE they enter the op pipeline (persist to IDB
+    // + broadcast over BroadcastChannel both structured-clone, which reject
+    // proxies with DataCloneError and leave the op stuck pending/inflight).
+    clonePlain: cloneForCache,
     normalizeItem,
     normalize_tree,
     begin_children_batch,
